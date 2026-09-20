@@ -1,0 +1,274 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# The E2B command entrypoint runs as the image's `user`, but the Web runner is
+# deliberately designed around a root orchestrator: it owns the reference and
+# scorer data, while only the model/build child is demoted to `agent`.  Re-exec
+# before touching any inputs so that model, scorer and permission semantics
+# preserve the released permission boundary instead of mixing two principals.
+if [ "$(id -u)" -ne 0 ]; then
+  exec sudo -n -E /usr/bin/env bash "$0" "$@"
+fi
+
+TASK_ID="${TASK_ID:-${RB_TASK_ID:-}}"
+STAGE="${STAGE:-${RB_STAGE:-recreation_eval}}"
+MODEL="${RB_MODEL:-${MODEL:-}}"
+AGENT_CLI="${RB_AGENT_CLI:-${AGENT_CLI:-codex}}"
+MCP_PROVIDER="${RB_MCP_PROVIDER:-${MCP_PROVIDER:-playwright}}"
+USE_VLM_JUDGE="${USE_VLM_JUDGE:-false}"
+PIPELINE_DIR="${RB_PIPELINE_DIR:-/workspace/RecreationBench}"
+OUTPUT_DIR="${RB_OUTPUT_DIR:-/tmp/recreationbench-output}"
+SOURCE_URL="${RB_SOURCE_URL:-}"
+SOURCE_ARCHIVE="${RB_SOURCE_ARCHIVE:-}"
+TASK_DIR="${RB_TASK_DIR:-}"
+
+run_root() {
+  if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo -n "$@"; fi
+}
+
+if [ -z "$TASK_ID" ]; then
+  echo "TASK_ID or RB_TASK_ID is required" >&2
+  exit 64
+fi
+if [ -z "$MODEL" ] && [ "$STAGE" != "setup" ]; then
+  echo "RB_MODEL or MODEL is required for stage=$STAGE" >&2
+  exit 64
+fi
+
+mkdir -p "$OUTPUT_DIR" "$(dirname "$PIPELINE_DIR")"
+if [ -n "$SOURCE_ARCHIVE" ]; then
+  if [ ! -f "$SOURCE_ARCHIVE" ]; then
+    echo "RB_SOURCE_ARCHIVE does not exist: $SOURCE_ARCHIVE" >&2
+    exit 66
+  fi
+  run_root rm -rf "$PIPELINE_DIR"
+  mkdir -p "$PIPELINE_DIR"
+  tar -xzf "$SOURCE_ARCHIVE" -C "$PIPELINE_DIR" --strip-components=1
+elif [ -n "$SOURCE_URL" ]; then
+  tmp_archive=/tmp/recreationbench-source.tar.gz
+  curl -fsSL "$SOURCE_URL" -o "$tmp_archive"
+  run_root rm -rf "$PIPELINE_DIR"
+  mkdir -p "$PIPELINE_DIR"
+  tar -xzf "$tmp_archive" -C "$PIPELINE_DIR" --strip-components=1
+elif [ ! -f "$PIPELINE_DIR/scripts/web/runner/run_agent.py" ]; then
+  echo "RecreationBench source not found; set RB_SOURCE_URL or RB_SOURCE_ARCHIVE" >&2
+  exit 66
+fi
+
+# Only trusted runtime roots belong on the root orchestrator's import path.
+# Inheriting an empty or workspace-controlled entry could execute agent-authored
+# Python while setting up the network namespace or evaluator.
+export PYTHONPATH="$PIPELINE_DIR/scripts:$PIPELINE_DIR/scripts/web"
+export RB_OUTPUT_DIR="$OUTPUT_DIR"
+export OUTPUT_DIR="$OUTPUT_DIR"
+export TASK_ID RB_TASK_ID="$TASK_ID" RB_MODEL="$MODEL" MODEL="$MODEL"
+export SCAFFOLD="$AGENT_CLI"
+# The evaluator runs from the uploaded pipeline tree, while the image-owned
+# Playwright installation lives outside it.  Point the evaluator at that
+# immutable install so functional/structural tests do not silently degrade to
+# 0/0 when the uploaded source has no node_modules directory.
+export MOCKWEB_NODE_MODULES="${MOCKWEB_NODE_MODULES:-/opt/mockweb-bench/batch_run/node_modules}"
+if [ ! -d "$MOCKWEB_NODE_MODULES/@playwright/test" ]; then
+  echo "Playwright evaluator dependency is missing: $MOCKWEB_NODE_MODULES/@playwright/test" >&2
+  exit 69
+fi
+export MOCKWEB_AGENT_UID="$(id -u agent)"
+export MOCKWEB_AGENT_GID="$(id -g agent)"
+# Drop privileges and capabilities for every agent/build subprocess. Direct
+# Docker users may explicitly opt into passing only the model credential.
+if [ "${RB_DIRECT_MODEL_KEY_TO_AGENT:-}" = "1" ]; then
+  export MOCKWEB_AGENT_RUN_PREFIX="setpriv --reuid=agent --regid=agent --clear-groups --no-new-privs --inh-caps=-all --ambient-caps=-all --bounding-set=-all -- env -u RB_VLM_KEY -u VLM_API_KEY -u E2B_API_KEY -u E2B_API_URL -u E2B_DOMAIN HOME=/home/agent CODEX_HOME=/home/agent/.codex PLAYWRIGHT_BROWSERS_PATH=${PLAYWRIGHT_BROWSERS_PATH:-/ms-playwright}"
+else
+  export MOCKWEB_AGENT_RUN_PREFIX="setpriv --reuid=agent --regid=agent --clear-groups --no-new-privs --inh-caps=-all --ambient-caps=-all --bounding-set=-all -- env -u RB_MODEL_API_KEY -u OPENAI_API_KEY -u UPSTREAM_API_KEY -u RB_VLM_KEY -u VLM_API_KEY -u E2B_API_KEY -u E2B_API_URL -u E2B_DOMAIN HOME=/home/agent CODEX_HOME=/home/agent/.codex PLAYWRIGHT_BROWSERS_PATH=${PLAYWRIGHT_BROWSERS_PATH:-/ms-playwright}"
+fi
+usermod --lock user
+export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-/ms-playwright}"
+if [ -n "${RB_ENABLE_VISUAL:-}" ]; then
+  export RB_ENABLE_VISUAL="$RB_ENABLE_VISUAL"
+  export RB_WEB_HEADFUL="${RB_WEB_HEADFUL:-1}"
+fi
+if [ -n "${RB_VISUAL_PASSWORD:-}" ]; then export RB_VISUAL_PASSWORD="$RB_VISUAL_PASSWORD"; fi
+if [ -n "${RB_VISUAL_GEOMETRY:-}" ]; then export RB_VISUAL_GEOMETRY="$RB_VISUAL_GEOMETRY"; fi
+if [ -n "${RB_VISUAL_WEB_PORT:-}" ]; then export RB_VISUAL_WEB_PORT="$RB_VISUAL_WEB_PORT"; fi
+if [ -n "${RB_VISUAL_RFB_PORT:-}" ]; then export RB_VISUAL_RFB_PORT="$RB_VISUAL_RFB_PORT"; fi
+
+if [ -n "${RB_MODEL_API_KEY:-}" ]; then
+  export OPENAI_API_KEY="$RB_MODEL_API_KEY"
+fi
+if [ "$AGENT_CLI" = "codex" ] && [ "${RB_DIRECT_MODEL_KEY_TO_AGENT:-}" = "1" ] && [ -z "${OPENAI_API_KEY:-}" ]; then
+  echo "RB_DIRECT_MODEL_KEY_TO_AGENT=1 requires RB_MODEL_API_KEY or OPENAI_API_KEY for Codex" >&2
+  exit 64
+fi
+if [ "$AGENT_CLI" != "claude" ] && [ -n "${RB_MODEL_BASE_URL:-}" ]; then
+  export ANTHROPIC_BASE_URL="$RB_MODEL_BASE_URL"
+fi
+if [ -n "${RB_VLM_KEY:-}" ]; then export VLM_API_KEY="$RB_VLM_KEY"; fi
+
+rb-web-verify
+rb-start-visual
+
+instance_dir=/tmp/recreationbench-web-instance
+dataset_dir=/tmp/recreationbench-web-dataset
+workspace_dir="$OUTPUT_DIR/workspace"
+run_root rm -rf "$instance_dir" "$dataset_dir" "$workspace_dir"
+mkdir -p "$instance_dir" "$dataset_dir" "$workspace_dir"
+
+# setup is a standalone permission-boundary diagnostic.  It deliberately runs
+# before frozen-input materialization: permission_probe plants a live stand-in
+# under the protected root, so setup neither needs nor should fetch benchmark
+# reference/tests from the released local input.
+if [ "$STAGE" = "setup" ]; then
+  setup_site_dir="$dataset_dir/$TASK_ID/site"
+  mkdir -p "$setup_site_dir"
+  run_root chown -R root:root "$dataset_dir"
+  run_root chmod 0700 "$dataset_dir"
+  run_root chown -R agent:agent "$workspace_dir" /home/agent
+  setup_report="$OUTPUT_DIR/permission_report.json"
+  set +e
+  python3 "$PIPELINE_DIR/scripts/web/setup_stage.py" \
+    --run-id "$TASK_ID" \
+    --site-dir "$setup_site_dir" \
+    --workspace-dir "$workspace_dir" \
+    --report "$setup_report" \
+    >"$OUTPUT_DIR/permission_setup.txt" 2>&1
+  setup_rc=$?
+  set -e
+  sed 's/^/[web setup] /' "$OUTPUT_DIR/permission_setup.txt" || true
+  rb-controller-helper write-web-setup-metrics \
+    --task-id "$TASK_ID" \
+    --report "$setup_report" \
+    --exit-code "$setup_rc" \
+    --output "$OUTPUT_DIR/metrics.json"
+  exit "$setup_rc"
+fi
+
+if [ -n "$TASK_DIR" ]; then
+  if [ ! -d "$TASK_DIR" ]; then
+    echo "RB_TASK_DIR does not exist: $TASK_DIR" >&2
+    exit 67
+  fi
+  task_root="/tmp/recreationbench-task-root"
+  run_root rm -rf "$task_root"
+  mkdir -p "$task_root/web/$TASK_ID"
+  cp -a "$TASK_DIR"/. "$task_root/web/$TASK_ID/"
+  export RB_UNIFIED_LOCAL_ROOT="$task_root"
+fi
+
+domain="$(rb-controller-helper materialize-web-input \
+  --task-id "$TASK_ID" \
+  --instance-dir "$instance_dir" \
+  --dataset-dir "$dataset_dir" \
+  --local-root "${RB_UNIFIED_LOCAL_ROOT:-}" \
+  --app "${RB_UNIFIED_APP:-}" \
+  --domain "${RB_WEB_DOMAIN:-}" | tail -n 1)"
+
+run_root chown -R agent:agent /home/agent
+# Protect every live input alias as well as the evaluator. Protecting only the
+# materialized dataset would leave uploaded or restored copies readable.
+seal_args=(rb-controller-helper seal-web-inputs
+  --workspace "$workspace_dir"
+  --report "$OUTPUT_DIR/permission_report.json"
+  --run-id "$TASK_ID"
+  --protected "$dataset_dir"
+  --protected "$instance_dir"
+  --protected "$PIPELINE_DIR/scripts/web/evaluation")
+source_upload_dir="${SOURCE_ARCHIVE%.tar.gz}"
+for protected in "$SOURCE_ARCHIVE" "$source_upload_dir" "$TASK_DIR" "${RB_UNIFIED_LOCAL_ROOT:-}"; do
+  if [ -n "$protected" ] && [ -e "$protected" ]; then
+    seal_args+=(--protected "$protected")
+  fi
+done
+"${seal_args[@]}"
+
+if [ "$AGENT_CLI" = "codex" ] && [ -n "${RB_MODEL_BASE_URL:-}" ]; then
+  run_root mkdir -p /home/agent/.codex
+  rb-controller-helper write-codex-config \
+    --model "$RB_MODEL" \
+    --base-url "$RB_MODEL_BASE_URL" \
+    --platform web \
+    --output /tmp/rb-web-codex-config.toml
+  run_root install -o agent -g agent -m 0600 /tmp/rb-web-codex-config.toml /home/agent/.codex/config.toml
+  rm -f /tmp/rb-web-codex-config.toml
+fi
+
+# Claude Code speaks Anthropic Messages. For an OpenAI-compatible upstream,
+# use the image's existing loopback protocol adapter.
+proxy_pid=""
+cleanup_proxy() {
+  [ -z "$proxy_pid" ] || kill "$proxy_pid" 2>/dev/null || true
+}
+if [ "$AGENT_CLI" = "claude" ] && [ -n "${RB_MODEL_BASE_URL:-}" ]; then
+  proxy_port="${RB_CLAUDE_PROXY_PORT:-8000}"
+  upstream_base="${RB_MODEL_BASE_URL%/}/chat/completions"
+  api_timeout_ms="${RB_API_TIMEOUT_MS:-1800000}"
+  export UPSTREAM_BASE_URL="$upstream_base"
+  export UPSTREAM_API_KEY="${RB_MODEL_API_KEY:-}"
+  export DEFAULT_UPSTREAM_MODEL="$MODEL"
+  export FORCE_UPSTREAM_MODEL=true
+  export PRETTY_LOGS=false
+  export UPSTREAM_TIMEOUT_SECONDS="${RB_PROXY_UPSTREAM_TIMEOUT_SECONDS:-$((api_timeout_ms / 1000))}"
+  export API_TIMEOUT_MS="$api_timeout_ms"
+  export CLAUDE_ENABLE_BYTE_WATCHDOG=0
+  export CLAUDE_ENABLE_STREAM_WATCHDOG=0
+  export CLAUDE_SLOW_FIRST_BYTE_MS=600000
+  export CLAUDE_BYTE_STREAM_IDLE_TIMEOUT_MS=600000
+  export CLAUDE_STREAM_IDLE_TIMEOUT_MS=600000
+  export PORT="$proxy_port"
+  rb-claude-code-proxy >"$OUTPUT_DIR/claude-code-proxy.log" 2>&1 &
+  proxy_pid=$!
+  trap cleanup_proxy EXIT
+  for _ in $(seq 1 30); do
+    if curl -fsS "http://127.0.0.1:${proxy_port}/v1/models" >/dev/null; then
+      break
+    fi
+    sleep 1
+  done
+  if ! curl -fsS "http://127.0.0.1:${proxy_port}/v1/models" >/dev/null; then
+    echo "Claude Code proxy failed to start; see $OUTPUT_DIR/claude-code-proxy.log" >&2
+    exit 68
+  fi
+  export ANTHROPIC_BASE_URL="http://127.0.0.1:${proxy_port}"
+  export ANTHROPIC_API_KEY=local-dev-token
+  export ANTHROPIC_AUTH_TOKEN=local-dev-token
+fi
+
+args=(
+  python3 "$PIPELINE_DIR/scripts/web/runner/run_agent.py"
+  --dataset "$dataset_dir"
+  --domain "$domain"
+  --model "$MODEL"
+  --workspace "$workspace_dir"
+  --browser-mcp "$MCP_PROVIDER"
+  --timeout-multiplier "${TIMEOUT_MULTIPLIER:-1}"
+)
+case "${USE_VLM_JUDGE,,}" in
+  1|true|yes|on)
+    args+=(--vlm-judge)
+    # The evaluator reads VLM_API_KEY from its root-only environment. Never put
+    # the judge credential in argv, which the agent can inspect via /proc.
+    [ -z "${RB_VLM_MODEL:-}" ] || args+=(--vlm-model "$RB_VLM_MODEL")
+    [ -z "${RB_VLM_BASE_URL:-}" ] || args+=(--vlm-base-url "$RB_VLM_BASE_URL")
+    vlm_backend="${RB_VLM_BACKEND:-openai-compatible}"
+    if [ "$vlm_backend" != "openai-compatible" ]; then
+      echo "unsupported RB_VLM_BACKEND for this Web runtime: $vlm_backend" >&2
+      exit 64
+    fi
+    args+=(--vlm-backend "$vlm_backend")
+    [ -z "${RB_VLM_MODE:-}" ] || args+=(--vlm-mode "$RB_VLM_MODE")
+    [ -z "${RB_VLM_MAX_CONCURRENCY:-}" ] || args+=(--vlm-max-concurrency "$RB_VLM_MAX_CONCURRENCY")
+    ;;
+esac
+
+set +e
+"${args[@]}" | tee "$OUTPUT_DIR/run_agent.json"
+rc=${PIPESTATUS[0]}
+set -e
+
+rb-controller-helper write-web-result-metrics \
+  --input "$OUTPUT_DIR/run_agent.json" \
+  --output "$OUTPUT_DIR/metrics.json" \
+  --task-id "$TASK_ID" \
+  --stage "$STAGE" \
+  --exit-code "$rc"
+
+exit "$rc"

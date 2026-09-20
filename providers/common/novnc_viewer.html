@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>RecreationBench visual viewer</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: ui-sans-serif, system-ui, sans-serif;
+      }
+      body {
+        display: grid;
+        grid-template-rows: auto 1fr;
+        min-height: 100vh;
+        margin: 0;
+        background: #10141c;
+        color: #eef2ff;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 0.75rem 1rem;
+        background: #192130;
+      }
+      #task {
+        color: #bfdbfe;
+      }
+      #status {
+        flex: 1;
+      }
+      #reconnect[hidden] {
+        display: none;
+      }
+      #reconnect {
+        border: 1px solid #8393b8;
+        border-radius: 0.4rem;
+        padding: 0.45rem 0.8rem;
+        background: #273450;
+        color: inherit;
+        cursor: pointer;
+      }
+      #screen {
+        min-width: 0;
+        min-height: 0;
+        overflow: hidden;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong>RecreationBench visual</strong>
+      <span id="task">__TASK_ID__</span>
+      <span id="status" role="status" aria-live="polite">connecting</span>
+      <button id="reconnect" type="button" hidden>Reconnect</button>
+    </header>
+    <main id="screen"></main>
+    <script nonce="__CSP_NONCE__">
+      const status = document.querySelector("#status");
+      const reconnect = document.querySelector("#reconnect");
+      const screen = document.querySelector("#screen");
+      let password;
+      let RFB;
+      let rfb;
+
+      function showStatus(value) {
+        status.textContent = value;
+        reconnect.hidden = value === "connected" || value === "connecting";
+        console.log("[visual]", value);
+      }
+
+      function connect() {
+        if (rfb) {
+          rfb.disconnect();
+        }
+        showStatus("connecting");
+        rfb = new RFB(screen, "/websockify", {
+          credentials: { password },
+        });
+        rfb.viewOnly = false;
+        rfb.scaleViewport = true;
+        rfb.resizeSession = false;
+        rfb.addEventListener("connect", () => showStatus("connected"));
+        rfb.addEventListener("disconnect", (event) => {
+          showStatus(event.detail.clean ? "disconnected" : "disconnected: error");
+        });
+        rfb.addEventListener("credentialsrequired", () => {
+          rfb.sendCredentials({ password });
+        });
+        rfb.addEventListener("securityfailure", (event) => {
+          const reason = event.detail && event.detail.reason ? event.detail.reason : "unknown";
+          showStatus(`security failure: ${reason}`);
+        });
+      }
+
+      async function bootstrap() {
+        const ticket = location.hash.slice(1);
+        let response;
+        try {
+          response = await fetch("/api/session", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ticket }),
+          });
+        } finally {
+          if (location.hash) {
+            history.replaceState(null, "", "/");
+          }
+        }
+        if (!response.ok) {
+          throw new Error(`session rejected (${response.status})`);
+        }
+        ({ password } = await response.json());
+        ({ default: RFB } = await import("/novnc/core/rfb.js"));
+        connect();
+      }
+
+      reconnect.addEventListener("click", connect);
+      window.addEventListener("unhandledrejection", (event) => {
+        showStatus(`error: ${event.reason && event.reason.message ? event.reason.message : event.reason}`);
+      });
+      bootstrap().catch((error) => showStatus(`error: ${error.message || error}`));
+    </script>
+  </body>
+</html>

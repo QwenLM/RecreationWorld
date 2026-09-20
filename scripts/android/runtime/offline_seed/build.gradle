@@ -1,0 +1,5 @@
+plugins {
+    id 'com.android.application' version '__AGP_VERSION__' apply false
+    id 'org.jetbrains.kotlin.android' version '__KOTLIN_VERSION__' apply false
+    id 'org.jetbrains.kotlin.kapt' version '__KOTLIN_VERSION__' apply false
+}

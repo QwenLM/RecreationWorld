@@ -1,0 +1,4 @@
+e2b==2.38.0
+e2b-desktop==2.4.1
+aiohttp>=3.12,<4.0
+python-dotenv>=1,<2

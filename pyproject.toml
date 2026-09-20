@@ -1,0 +1,41 @@
+[project]
+name = "recreation-bench"
+version = "0.1.0"
+description = "Five-platform execution and evaluation framework for RecreationWorld and RecreationBench"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.9"
+dependencies = [
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+    "paramiko>=3.0",
+    "python-dotenv>=1.0,<2",
+    "eval_type_backport>=0.2; python_version < '3.10'",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.4",
+]
+
+[project.scripts]
+rb = "recreation_bench.cli:main"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.exclude-package-data]
+"*" = ["__pycache__/*", "*.pyc", "*.pyo"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+namespaces = false
+
+[tool.ruff]
+target-version = "py39"
+line-length = 100

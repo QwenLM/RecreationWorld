@@ -1,0 +1,11 @@
+# RecreationBench Web evaluation dependencies
+# Python >= 3.10
+
+# Keep Python and Node Playwright on the same release. Their Chromium revisions
+# must match for the generated Playwright test configuration to run reliably.
+playwright==1.60.0
+Pillow>=10.0
+numpy>=1.24
+scikit-image>=0.21
+scipy>=1.10
+httpx>=0.27

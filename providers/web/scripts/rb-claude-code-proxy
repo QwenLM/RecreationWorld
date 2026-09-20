@@ -1,0 +1,131 @@
+#!/usr/bin/env python3
+"""Run the pinned Claude Code proxy with recoverable upstream-429 handling.
+
+The upstream dependency raises while accessing ``response.text`` for a streamed
+429 body.  That closes the Anthropic SSE response and makes Claude report a
+socket failure.  Keep the dependency pinned, but replace only its streaming
+adapter so rate limits are retried locally and remain visible if exhausted.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import time
+from collections.abc import AsyncIterator
+from email.utils import parsedate_to_datetime
+from typing import Any
+
+import httpx
+import uvicorn
+from claude_code_proxy import app
+from claude_code_proxy.config import Settings
+
+
+DROP_BETA_PREFIXES = tuple(
+    prefix.strip().lower()
+    for prefix in os.environ.get(
+        "RB_MODEL_PROXY_DROP_BETA_PREFIXES",
+        "prompt-caching-scope-",
+    ).split(",")
+    if prefix.strip()
+)
+
+
+def sanitize_anthropic_beta_header(headers: dict[str, str]) -> dict[str, str]:
+    if not DROP_BETA_PREFIXES:
+        return headers
+    out = dict(headers)
+    for key in tuple(out):
+        if key.lower() != "anthropic-beta":
+            continue
+        tokens = []
+        for token in out[key].split(","):
+            token = token.strip()
+            if token and not any(token.lower().startswith(prefix) for prefix in DROP_BETA_PREFIXES):
+                tokens.append(token)
+        if tokens:
+            out[key] = ",".join(tokens)
+        else:
+            out.pop(key, None)
+    return out
+
+
+def retry_delay(response: httpx.Response, attempt: int) -> float:
+    raw = response.headers.get("retry-after", "").strip()
+    if raw:
+        try:
+            return min(float(raw), 300.0)
+        except ValueError:
+            try:
+                return min(max(0.0, (parsedate_to_datetime(raw).timestamp() - time.time())), 300.0)
+            except (TypeError, ValueError):
+                pass
+    return min(15.0 * (2**attempt), 300.0)
+
+
+async def stream_messages_with_429_retry(
+    *, settings: Settings, upstream_payload: dict[str, Any], inbound_api_key: str | None,
+    requested_model: str, input_tokens: int, transport: httpx.AsyncBaseTransport | None,
+    logger: Any, context: Any, started_at: float,
+) -> AsyncIterator[str]:
+    translator = app.StreamTranslator(requested_model=requested_model, input_tokens=input_tokens)
+    for event in translator.start_events():
+        yield app._sse_frame(event)
+
+    headers = sanitize_anthropic_beta_header(app._upstream_headers(settings, inbound_api_key))
+    retries = max(0, int(os.environ.get("RB_PROXY_429_MAX_RETRIES", "6")))
+    async with httpx.AsyncClient(timeout=settings.upstream_timeout_seconds, transport=transport, trust_env=False) as client:
+        for attempt in range(retries + 1):
+            try:
+                async with client.stream("POST", settings.upstream_base_url, headers=headers, json=upstream_payload) as response:
+                    if response.status_code == 429:
+                        detail = (await response.aread()).decode(errors="replace")[:1000]
+                        if attempt < retries:
+                            await asyncio.sleep(retry_delay(response, attempt))
+                            continue
+                        message = f"Upstream returned 429 after {retries + 1} attempts: {detail}"
+                        logger.log_request_error(context, status_code=429, message=message, latency_ms=int((time.perf_counter() - started_at) * 1000))
+                        yield app._sse_frame({"type": "error", "error": {"type": "rate_limit_error", "message": message}})
+                        return
+                    response.raise_for_status()
+                    async for line in response.aiter_lines():
+                        if not line or not line.strip().startswith("data:"):
+                            continue
+                        data_str = line.strip()[5:].strip()
+                        if data_str == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(data_str)
+                        except json.JSONDecodeError:
+                            continue
+                        if isinstance(chunk, dict):
+                            for event in translator.consume_chunk(chunk):
+                                yield app._sse_frame(event)
+                    break
+            except httpx.HTTPStatusError as exc:
+                detail = (await exc.response.aread()).decode(errors="replace")[:1000]
+                message = f"Upstream returned {exc.response.status_code}: {detail}"
+                logger.log_request_error(context, status_code=exc.response.status_code, message=message, latency_ms=int((time.perf_counter() - started_at) * 1000))
+                yield app._sse_frame({"type": "error", "error": {"type": "api_error", "message": message}})
+                return
+            except httpx.RequestError as exc:
+                message = f"Could not reach upstream: {exc}"
+                logger.log_request_error(context, status_code=502, message=message, latency_ms=int((time.perf_counter() - started_at) * 1000))
+                yield app._sse_frame({"type": "error", "error": {"type": "api_error", "message": message}})
+                return
+
+    for event in translator.finish_events():
+        yield app._sse_frame(event)
+    logger.log_request_end(context, status_code=200, latency_ms=int((time.perf_counter() - started_at) * 1000))
+
+
+def main() -> None:
+    app._stream_messages = stream_messages_with_429_retry
+    settings = Settings.from_env()
+    uvicorn.run(app.create_app(settings=settings), host=settings.host, port=settings.port)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export DISPLAY="${DISPLAY:-:99}"
+screen="${RB_SCREEN:-1280x720x24}"
+
+run_root() {
+  if [ "$(id -u)" -eq 0 ]; then
+    "$@"
+  else
+    sudo -n "$@"
+  fi
+}
+
+if [ "${RB_MANAGE_DISPLAY:-true}" = "true" ]; then
+  if ! xdpyinfo -display "$DISPLAY" >/dev/null 2>&1; then
+    display_num="${DISPLAY#:}"
+    rm -f "/tmp/.X${display_num}-lock" "/tmp/.X11-unix/X${display_num}" 2>/dev/null || true
+    Xvfb "$DISPLAY" -screen 0 "$screen" -ac +extension GLX +render -noreset >/tmp/rb-xvfb.log 2>&1 &
+    for _ in $(seq 1 100); do
+      xdpyinfo -display "$DISPLAY" >/dev/null 2>&1 && break
+      sleep 0.1
+    done
+  fi
+
+  cat > /etc/dbus-1/session-local.conf <<'DBUSCONF'
+<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
+<busconfig>
+  <auth>ANONYMOUS</auth>
+  <allow_anonymous/>
+  <policy context="default">
+    <allow send_destination="*" eavesdrop="true"/>
+    <allow eavesdrop="true"/>
+    <allow own="*"/>
+    <allow user="*"/>
+  </policy>
+</busconfig>
+DBUSCONF
+
+  if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
+    user_uid="$(id -u user 2>/dev/null || echo 1000)"
+    user_gid="$(id -g user 2>/dev/null || echo 1000)"
+    run_root mkdir -p "/run/user/${user_uid}"
+    run_root chown "${user_uid}:${user_gid}" "/run/user/${user_uid}"
+    run_root chmod 0700 "/run/user/${user_uid}"
+    user_bus="/run/user/${user_uid}/bus"
+    if [ ! -S "$user_bus" ]; then
+      runuser -u user -- dbus-daemon --session \
+        --address="unix:path=${user_bus}" \
+        --fork >/tmp/rb-user-dbus.log 2>&1 || true
+    fi
+    if [ -S "$user_bus" ]; then
+      export DBUS_SESSION_BUS_ADDRESS="unix:path=${user_bus}"
+      export XDG_RUNTIME_DIR="/run/user/${user_uid}"
+    else
+      eval "$(dbus-launch --sh-syntax)"
+      export DBUS_SESSION_BUS_ADDRESS
+    fi
+  fi
+
+  if ! ps -ef | grep '[a]t-spi2-registryd' >/dev/null 2>&1; then
+    atspi_bin="/usr/libexec/at-spi2-registryd"
+    [ -x "$atspi_bin" ] || atspi_bin="/usr/lib/at-spi2-core/at-spi2-registryd"
+    if [ "${DBUS_SESSION_BUS_ADDRESS:-}" != "" ] && id user >/dev/null 2>&1; then
+      runuser -u user -- env \
+        DISPLAY="$DISPLAY" \
+        DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS" \
+        XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u user)}" \
+        "$atspi_bin" --use-gnome-session >/tmp/rb-atspi.log 2>&1 &
+    else
+      "$atspi_bin" >/tmp/rb-atspi.log 2>&1 &
+    fi
+  fi
+
+  if ! wmctrl -m >/dev/null 2>&1; then
+    openbox >/tmp/rb-openbox.log 2>&1 &
+  fi
+fi
+
+if [ -e /dev/uinput ]; then
+  run_root chmod 0666 /dev/uinput || true
+fi
+
+run_root gpasswd -d user sudo >/dev/null 2>&1 || true
+if [ -n "${RB_HOST_PASSWORD:-}" ]; then
+  case "$RB_HOST_PASSWORD" in
+    *:*|*$'\n'*) echo "RB_HOST_PASSWORD contains an unsupported character" >&2; exit 64 ;;
+  esac
+  printf 'user:%s\n' "$RB_HOST_PASSWORD" | run_root chpasswd
+else
+  run_root usermod --lock user
+fi
+run_root mkdir -p /run/sshd /workspace /home/user/rb_pipeline /tmp/recreationbench-output
+run_root chown -R user:user /workspace /home/user/rb_pipeline /tmp/recreationbench-output 2>/dev/null || true
+
+if command -v sshd >/dev/null 2>&1 && ! pgrep -x sshd >/dev/null 2>&1; then
+  run_root ssh-keygen -A >/dev/null 2>&1 || true
+  run_root /usr/sbin/sshd
+fi

@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RecreationBench Android Viewer</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="title">
+        <h1 id="taskTitle">Android app</h1>
+        <span class="subtitle" id="taskSubtitle">android / waiting for result</span>
+      </div>
+      <nav class="actions" aria-label="Viewer actions">
+        <button class="button primary" id="fullscreen" type="button">Open viewer</button>
+        <a class="button disabled" id="metricsLink" aria-disabled="true">Metrics</a>
+      </nav>
+    </header>
+
+    <main class="workspace">
+      <section class="viewer" aria-label="Interactive Android device">
+        <div class="viewer-bar">
+          <span class="dot"></span>
+          <span id="connectionText">Connecting</span>
+        </div>
+
+        <div class="device-stage" id="deviceStage">
+          <div class="phone" id="phone">
+            <div class="speaker"></div>
+            <div class="screen-wrap" id="screenWrap">
+              <video id="video" autoplay muted playsinline></video>
+              <img id="screen" alt="Live Android emulator screen" draggable="false" />
+              <div class="screen-message" id="screenMessage">Waiting for Android…</div>
+              <div class="gesture" id="gesture"></div>
+            </div>
+            <div class="nav-bar" aria-label="Android navigation">
+              <button data-key="back" title="Back" aria-label="Back">‹</button>
+              <button data-key="home" title="Home" aria-label="Home">○</button>
+              <button data-key="recents" title="Recents" aria-label="Recents">▢</button>
+            </div>
+          </div>
+          <p class="interaction-hint">Click to tap · drag to swipe</p>
+        </div>
+      </section>
+
+      <aside>
+        <section class="summary">
+          <div class="status-pill" id="resultStatus">
+            <span class="dot"></span>
+            <span id="resultStatusText">Running</span>
+          </div>
+
+          <div class="stat-grid">
+            <div class="stat">
+              <label>Score</label>
+              <strong id="taskScore">-</strong>
+            </div>
+            <div class="stat">
+              <label>Passed</label>
+              <strong id="passed">-</strong>
+            </div>
+          </div>
+
+          <dl class="result-facts">
+            <dt>Task</dt><dd id="taskId">-</dd>
+            <dt>Run</dt><dd id="runName">-</dd>
+            <dt>Package</dt><dd id="package">-</dd>
+            <dt>Device</dt><dd id="deviceName">Android emulator</dd>
+            <dt>Serial</dt><dd id="serial">-</dd>
+            <dt>Android</dt><dd id="androidVersion">-</dd>
+            <dt>Viewport</dt><dd id="viewport">-</dd>
+            <dt>Stream</dt><dd id="stream">-</dd>
+          </dl>
+        </section>
+
+        <section class="control-section">
+          <div class="section-heading">
+            <label for="appSelect">Open installed app</label>
+            <button class="icon-button" id="refresh" type="button" title="Refresh" aria-label="Refresh">↻</button>
+          </div>
+          <div class="field-row">
+            <select id="appSelect" aria-label="Installed Android apps">
+              <option value="">Loading packages…</option>
+            </select>
+            <button class="button primary" id="launch" type="button">Launch</button>
+          </div>
+        </section>
+
+        <section class="control-section">
+          <label for="textInput">Type into app</label>
+          <form id="textForm">
+            <textarea id="textInput" rows="3" maxlength="500" placeholder="Enter text for the focused field"></textarea>
+            <div class="action-row">
+              <span id="inputStatus">Focus a field on the device first.</span>
+              <button class="button primary" type="submit">Send text</button>
+            </div>
+          </form>
+        </section>
+      </aside>
+    </main>
+
+    <script src="/app.js" defer></script>
+  </body>
+</html>

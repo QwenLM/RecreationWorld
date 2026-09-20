@@ -1,0 +1,2 @@
+python-dotenv>=1,<2
+paramiko>=3.5,<4

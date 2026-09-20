@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+python3 --version
+node --version
+npm --version
+claude --version
+codex --version
+npx playwright --version
+id agent
+command -v setpriv
+command -v unshare
+case "${RB_ENABLE_VISUAL:-}" in
+  1|true|TRUE|yes|YES|on|ON)
+    command -v Xvfb
+    command -v openbox
+    command -v x11vnc
+    command -v websockify
+    test -d /usr/share/novnc -o -d /usr/share/novnc/web
+    ;;
+esac
+test -d "${PLAYWRIGHT_BROWSERS_PATH:-/ms-playwright}"
+
+rb-controller-helper check-modules \
+  playwright PIL numpy cv2 skimage scipy lpips torch openai \
+  evaluation.egress_scan runner.net_isolate
+
+node -e "require('/opt/mockweb-bench/batch_run/node_modules/@playwright/test'); console.log('@playwright/test: ok')"
+test -d "${MOCKWEB_NODE_MODULES:-/opt/mockweb-bench/batch_run/node_modules}/@playwright/test"
+echo "evaluator node_modules: ${MOCKWEB_NODE_MODULES:-/opt/mockweb-bench/batch_run/node_modules}"
+python3 -m playwright install --dry-run chromium >/dev/null
+echo "web environment: ok"

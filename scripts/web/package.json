@@ -1,0 +1,9 @@
+{
+  "name": "recreation-bench-web-eval",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Node dependencies for the RecreationBench web evaluator",
+  "devDependencies": {
+    "@playwright/test": "1.60.0"
+  }
+}

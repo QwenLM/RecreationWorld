@@ -1,0 +1,1 @@
+$content = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('__CONTENT_BASE64__')); foreach ($d in @((Join-Path $env:USERPROFILE '.gradle'), 'C:\gradle_cache')) { New-Item -ItemType Directory -Force -Path $d | Out-Null; [System.IO.File]::WriteAllText((Join-Path $d 'init.gradle'), $content) }

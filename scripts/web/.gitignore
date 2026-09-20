@@ -1,0 +1,5 @@
+.venv/
+node_modules/
+template/node_modules/
+template/dist/
+*.log

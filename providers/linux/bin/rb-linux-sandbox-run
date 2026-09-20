@@ -1,0 +1,199 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+TASK_ID="${TASK_ID:-${RB_TASK_ID:-}}"
+STAGE="${STAGE:-${RB_STAGE:-recreation_eval}}"
+MODEL="${RB_MODEL:-${MODEL:-}}"
+AGENT_CLI="${RB_AGENT_CLI:-${AGENT_CLI:-codex}}"
+MCP_PROVIDER="${RB_MCP_PROVIDER:-${MCP_PROVIDER:-cua-driver}}"
+PIPELINE_DIR="${RB_PIPELINE_DIR:-/workspace/RecreationBench}"
+OUTPUT_DIR="${RB_OUTPUT_DIR:-${OUTPUT_DIR:-/tmp/recreationbench-output}}"
+SOURCE_URL="${RB_SOURCE_URL:-}"
+SOURCE_ARCHIVE="${RB_SOURCE_ARCHIVE:-}"
+TASK_DIR="${RB_TASK_DIR:-}"
+PRELOADED_RECREATION_DIR="${RB_PRELOADED_RECREATION_DIR:-}"
+VISUAL_ONLY="${RB_VISUAL_ONLY:-}"
+HOST_USER="${RB_HOST_USER:-user}"
+HOST_PASSWORD="${RB_HOST_PASSWORD:-}"
+if [ -z "$HOST_PASSWORD" ]; then
+  HOST_PASSWORD="rb-$(tr -d '-' </proc/sys/kernel/random/uuid)"
+fi
+export RB_HOST_PASSWORD="$HOST_PASSWORD"
+HOST_PORT="${RB_HOST_PORT:-22}"
+
+. /usr/local/bin/rb-linux-start
+
+if [ -z "$TASK_ID" ]; then
+  echo "TASK_ID or RB_TASK_ID is required" >&2
+  exit 64
+fi
+
+truthy() {
+  case "${1:-}" in
+    1|true|TRUE|yes|YES|on|ON) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+if [ -z "$MODEL" ] && [ "$STAGE" != "setup" ] && ! truthy "$VISUAL_ONLY"; then
+  echo "RB_MODEL or MODEL is required for stage=$STAGE" >&2
+  exit 64
+fi
+
+mkdir -p "$OUTPUT_DIR" "$(dirname "$PIPELINE_DIR")"
+
+if [ -n "$SOURCE_ARCHIVE" ]; then
+  if [ ! -f "$SOURCE_ARCHIVE" ]; then
+    echo "RB_SOURCE_ARCHIVE does not exist: $SOURCE_ARCHIVE" >&2
+    exit 66
+  fi
+  rm -rf "$PIPELINE_DIR"
+  mkdir -p "$PIPELINE_DIR"
+  tar -xzf "$SOURCE_ARCHIVE" -C "$PIPELINE_DIR" --strip-components=1
+elif [ -n "$SOURCE_URL" ]; then
+  tmp_archive=/tmp/recreationbench-source.tar.gz
+  curl -fsSL "$SOURCE_URL" -o "$tmp_archive"
+  rm -rf "$PIPELINE_DIR"
+  mkdir -p "$PIPELINE_DIR"
+  tar -xzf "$tmp_archive" -C "$PIPELINE_DIR" --strip-components=1
+elif [ ! -f "$PIPELINE_DIR/scripts/core/pipeline.py" ]; then
+  echo "RecreationBench source not found at $PIPELINE_DIR; set RB_SOURCE_URL or RB_SOURCE_ARCHIVE" >&2
+  exit 66
+fi
+
+export PYTHONPATH="$PIPELINE_DIR/scripts:${PYTHONPATH:-}"
+export RB_PIPELINE_STATE_DIR="$OUTPUT_DIR/pipeline_state"
+export OUTPUT_DIR="$OUTPUT_DIR"
+export RB_OUTPUT_DIR="$OUTPUT_DIR"
+export RB_TASK_ID="$TASK_ID"
+export TASK_ID="$TASK_ID"
+export RB_MODEL="$MODEL"
+export MODEL="$MODEL"
+export RB_AGENT_CLI="$AGENT_CLI"
+export AGENT_CLI="$AGENT_CLI"
+export RB_SSH_HOST=127.0.0.1
+export RB_SSH_USER="$HOST_USER"
+export RB_SSH_PASSWORD="$HOST_PASSWORD"
+export RB_SSH_PORT="$HOST_PORT"
+
+if [ -n "${RB_MODEL_API_KEY:-}" ]; then export MODEL_API_KEY="$RB_MODEL_API_KEY"; fi
+if [ -n "${RB_MODEL_BASE_URL:-}" ]; then export MODEL_BASE_URL="$RB_MODEL_BASE_URL"; fi
+if [ -n "${RB_AUTH_TOKEN:-}" ]; then export ANTHROPIC_AUTH_TOKEN="$RB_AUTH_TOKEN"; fi
+if [ -n "${RB_VLM_KEY:-}" ]; then export VLM_API_KEY="$RB_VLM_KEY"; fi
+if [ -n "${RB_VLM_MODEL:-}" ]; then export VLM_MODEL="$RB_VLM_MODEL"; fi
+if [ -n "${RB_VLM_BASE_URL:-}" ]; then export VLM_BASE_URL="$RB_VLM_BASE_URL"; fi
+if [ -n "${RB_CODEX_PROXY:-}" ]; then export RB_CODEX_PROXY="$RB_CODEX_PROXY"; fi
+if [ -z "${RB_MODEL_MAX_RETRIES:-}" ] && [ -n "${RB_MODEL_PROXY_RETRIES:-}" ]; then
+  export RB_MODEL_MAX_RETRIES="$RB_MODEL_PROXY_RETRIES"
+fi
+if [ -n "${RB_MODEL_PROXY_RETRIES:-}" ]; then export RB_MODEL_PROXY_RETRIES="$RB_MODEL_PROXY_RETRIES"; fi
+if [ -n "${RB_MODEL_PROXY_BACKOFF_SEC:-}" ]; then export RB_MODEL_PROXY_BACKOFF_SEC="$RB_MODEL_PROXY_BACKOFF_SEC"; fi
+if [ -n "${RB_MODEL_PROXY_RETRY_ERRORS:-}" ]; then export RB_MODEL_PROXY_RETRY_ERRORS="$RB_MODEL_PROXY_RETRY_ERRORS"; fi
+if [ -n "$TASK_DIR" ]; then
+  if [ ! -d "$TASK_DIR" ]; then
+    echo "RB_TASK_DIR does not exist: $TASK_DIR" >&2
+    exit 67
+  fi
+  task_root="/tmp/recreationbench-task-root"
+  rm -rf "$task_root"
+  mkdir -p "$task_root/ubuntu/$TASK_ID"
+  cp -a "$TASK_DIR"/. "$task_root/ubuntu/$TASK_ID/"
+  export RB_UNIFIED_LOCAL_ROOT="$task_root"
+fi
+if [ -n "${RB_UNIFIED_LOCAL_ROOT:-}" ]; then export RB_UNIFIED_LOCAL_ROOT="$RB_UNIFIED_LOCAL_ROOT"; fi
+if [ -n "${RB_ENABLE_VISUAL:-}" ]; then export RB_ENABLE_VISUAL="$RB_ENABLE_VISUAL"; fi
+if [ -n "${RB_VISUAL_PASSWORD:-}" ]; then export RB_VISUAL_PASSWORD="$RB_VISUAL_PASSWORD"; fi
+if [ -n "${RB_VISUAL_GEOMETRY:-}" ]; then export RB_VISUAL_GEOMETRY="$RB_VISUAL_GEOMETRY"; fi
+if [ -n "${RB_VISUAL_WEB_PORT:-}" ]; then export RB_VISUAL_WEB_PORT="$RB_VISUAL_WEB_PORT"; fi
+if [ -n "${RB_VISUAL_RFB_PORT:-}" ]; then export RB_VISUAL_RFB_PORT="$RB_VISUAL_RFB_PORT"; fi
+if [ -n "${RB_VISUAL_MODE:-}" ]; then export RB_VISUAL_MODE="$RB_VISUAL_MODE"; fi
+if [ -n "${RB_VISUAL_ONLY:-}" ]; then export RB_VISUAL_ONLY="$RB_VISUAL_ONLY"; fi
+if [ -n "${RB_PRELOADED_RECREATION_DIR:-}" ]; then export RB_PRELOADED_RECREATION_DIR="$RB_PRELOADED_RECREATION_DIR"; fi
+
+rb-start-visual
+
+rb-linux-verify
+
+seed_preloaded_recreation() {
+  [ -n "$PRELOADED_RECREATION_DIR" ] || return 0
+  [ -d "$PRELOADED_RECREATION_DIR" ] || {
+    echo "RB_PRELOADED_RECREATION_DIR does not exist: $PRELOADED_RECREATION_DIR" >&2
+    return 65
+  }
+  local model_slug="${MODEL:-visual-only}"
+  model_slug="${model_slug//./-}"
+  local rec_root="$OUTPUT_DIR/pipeline_state/$TASK_ID/recreation_${model_slug}"
+  rm -rf "$rec_root/recreation"
+  mkdir -p "$rec_root"
+  cp -a "$PRELOADED_RECREATION_DIR" "$rec_root/recreation"
+  chmod +x "$rec_root/recreation/build.sh" "$rec_root/recreation/launch.sh" 2>/dev/null || true
+  echo "preloaded_recreation=$rec_root/recreation"
+}
+
+seed_preloaded_recreation
+
+if truthy "$VISUAL_ONLY"; then
+  model_slug="${MODEL:-visual-only}"
+  model_slug="${model_slug//./-}"
+  rec_dir="$OUTPUT_DIR/pipeline_state/$TASK_ID/recreation_${model_slug}/recreation"
+  if [ ! -f "$rec_dir/build.sh" ] || [ ! -f "$rec_dir/launch.sh" ]; then
+    echo "visual-only requires preloaded recreation with build.sh and launch.sh at $rec_dir" >&2
+    exit 65
+  fi
+  export DISPLAY="${DISPLAY:-:99}"
+  echo "visual-only build: $rec_dir/build.sh"
+  (cd "$rec_dir" && bash ./build.sh)
+  echo "visual-only launch: $rec_dir/launch.sh"
+  (cd "$rec_dir" && nohup bash ./launch.sh >"$OUTPUT_DIR/visual-only-app.log" 2>&1 & echo $! >"$OUTPUT_DIR/visual-only-app.pid")
+  rb-controller-helper write-visual-metrics \
+    --task-id "$TASK_ID" \
+    --platform linux \
+    --output "$OUTPUT_DIR/metrics.json" \
+    --print-json
+  exit 0
+fi
+
+cmd=(
+  python3 "$PIPELINE_DIR/scripts/core/pipeline.py"
+  --platform linux
+  --task-id "$TASK_ID"
+  --stage "$STAGE"
+  --output-dir "$OUTPUT_DIR"
+  --host 127.0.0.1
+  --host-user "$HOST_USER"
+  --host-password "$HOST_PASSWORD"
+  --host-port "$HOST_PORT"
+  --agent-cli "$AGENT_CLI"
+  -x "download=true"
+  -x "mcp_provider=$MCP_PROVIDER"
+)
+
+if [ -n "$MODEL" ]; then cmd+=(--model "$MODEL"); fi
+if [ -n "${RB_MODEL_BASE_URL:-}" ]; then cmd+=(--model-base-url "$RB_MODEL_BASE_URL"); fi
+if [ -n "${RB_MODEL_API_KEY:-}" ]; then cmd+=(--model-api-key "$RB_MODEL_API_KEY"); fi
+if [ -n "${RB_AUTH_TOKEN:-}" ]; then cmd+=(--auth-token "$RB_AUTH_TOKEN"); fi
+if [ -n "${RB_VLM_KEY:-}" ]; then cmd+=(--vlm-key "$RB_VLM_KEY"); fi
+if [ -n "${RB_VLM_MODEL:-}" ]; then cmd+=(--vlm-model "$RB_VLM_MODEL"); fi
+if [ -n "${RB_VLM_BASE_URL:-}" ]; then cmd+=(--vlm-base-url "$RB_VLM_BASE_URL"); fi
+
+set +e
+"${cmd[@]}"
+rc=$?
+set -e
+export RB_PIPELINE_EXIT_CODE="$rc"
+
+if [ ! -f "$OUTPUT_DIR/metrics.json" ] && [ -f "$PIPELINE_DIR/scripts/core/template_metrics.py" ]; then
+  WM_EXIT="$rc" STAGE="$STAGE" TASK_ID="$TASK_ID" OUTPUT_DIR="$OUTPUT_DIR" \
+    PYTHONPATH="$PIPELINE_DIR/scripts" python3 -m core.template_metrics || true
+fi
+
+if [ ! -f "$OUTPUT_DIR/metrics.json" ]; then
+  rb-controller-helper write-error-metrics \
+    --task-id "$TASK_ID" \
+    --platform linux \
+    --stage "$STAGE" \
+    --exit-code "$RB_PIPELINE_EXIT_CODE" \
+    --output "$OUTPUT_DIR/metrics.json"
+fi
+
+exit "$rc"

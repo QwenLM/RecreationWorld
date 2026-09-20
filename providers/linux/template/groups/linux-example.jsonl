@@ -1,0 +1,3 @@
+{"task_id":"pencil2d-pencil"}
+{"task_id":"ksnip-ksnip","agent_cli":"claude","timeout_sec":86400}
+{"task_id":"adrienverge-photocollage","model":"claude-opus-5","env":{"RB_POLL_INTERVAL_SEC":"30"}}

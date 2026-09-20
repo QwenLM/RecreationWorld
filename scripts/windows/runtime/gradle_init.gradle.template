@@ -1,0 +1,23 @@
+settingsEvaluated { settings ->
+    settings.pluginManagement {
+        repositories.clear()
+        repositories {
+__PLUGIN_REPOSITORIES__
+            gradlePluginPortal()
+            mavenCentral()
+        }
+    }
+}
+allprojects {
+    buildscript {
+        repositories {
+__BUILDSCRIPT_REPOSITORIES__
+            mavenCentral()
+            gradlePluginPortal()
+        }
+    }
+    repositories {
+__PROJECT_REPOSITORIES__
+        mavenCentral()
+    }
+}

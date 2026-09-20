@@ -1,0 +1,1 @@
+"""Windows (UIA) platform pipeline."""

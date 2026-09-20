@@ -1,0 +1,2 @@
+// Installed only after the networked bootstrap has populated and verified the cache.
+gradle.startParameter.offline = true

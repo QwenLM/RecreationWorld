@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ -z "${RB_HOST_PASSWORD:-}" ]; then
+  RB_HOST_PASSWORD="rb-$(tr -d '-' </proc/sys/kernel/random/uuid)"
+  export RB_HOST_PASSWORD
+fi
+. /usr/local/bin/rb-linux-start
+
+python3 --version
+node --version
+npm --version
+claude --version
+codex --version
+cua-driver --version
+command -v x11vnc
+command -v websockify
+test -d /usr/share/novnc -o -d /usr/share/novnc/web
+
+rb-controller-helper check-modules PIL numpy cv2 paramiko yaml openai requests pytest
+
+retry() {
+  local desc="$1"
+  shift
+  local i
+  for i in $(seq 1 20); do
+    if "$@" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.5
+  done
+  echo "check failed: ${desc}" >&2
+  "$@"
+}
+
+retry "X display" xdpyinfo -display "${DISPLAY:-:99}"
+retry "AT-SPI registry" bash -lc "ps -ef | grep '[a]t-spi2-registryd' >/dev/null"
+retry "window manager" wmctrl -m
+SSHPASS="$RB_HOST_PASSWORD" sshpass -e ssh \
+  -o StrictHostKeyChecking=no \
+  -o UserKnownHostsFile=/dev/null \
+  -o PreferredAuthentications=password \
+  user@127.0.0.1 "echo ssh-ok" >/dev/null
+echo "linux sandbox image: ok"

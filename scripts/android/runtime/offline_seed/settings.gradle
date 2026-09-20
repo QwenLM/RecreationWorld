@@ -1,0 +1,27 @@
+pluginManagement {
+    def googleMirror = System.getenv('RB_GRADLE_GOOGLE_MIRROR_URL')
+    def pluginMirror = System.getenv('RB_GRADLE_PLUGIN_MIRROR_URL')
+    def publicMirror = System.getenv('RB_GRADLE_PUBLIC_MIRROR_URL')
+    def centralMirror = System.getenv('RB_GRADLE_CENTRAL_MIRROR_URL')
+    repositories {
+        if (googleMirror) maven { url uri(googleMirror) }
+        if (pluginMirror) maven { url uri(pluginMirror) }
+        if (publicMirror) maven { url uri(publicMirror) }
+        if (centralMirror) maven { url uri(centralMirror) }
+        google(); mavenCentral(); gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    def googleMirror = System.getenv('RB_GRADLE_GOOGLE_MIRROR_URL')
+    def publicMirror = System.getenv('RB_GRADLE_PUBLIC_MIRROR_URL')
+    def centralMirror = System.getenv('RB_GRADLE_CENTRAL_MIRROR_URL')
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        if (googleMirror) maven { url uri(googleMirror) }
+        if (publicMirror) maven { url uri(publicMirror) }
+        if (centralMirror) maven { url uri(centralMirror) }
+        google(); mavenCentral()
+    }
+}
+rootProject.name = "rb-android-offline-smoke"
+include ":app"

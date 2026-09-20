@@ -1,0 +1,15 @@
+[Unit]
+Description=RecreationBench Android emulator
+After=network.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/recreationbench
+ExecStart=/opt/recreationbench/providers/android/start-emulator.sh
+ExecStop=/usr/bin/docker stop recreationbench-emulator
+TimeoutStartSec=660
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

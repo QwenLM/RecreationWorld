@@ -1,0 +1,9 @@
+# Python dependencies installed on the macOS environment by setup_macos.sh.
+# Keep these compatible with the supported system Python (3.9+).
+pytest>=8.3,<9
+pytest-timeout>=2.3,<3
+pytest-json-report>=1.5,<2
+PyYAML>=6.0,<7
+pyobjc-framework-ApplicationServices>=10.3,<11
+pyobjc-framework-Cocoa>=10.3,<11
+pyobjc-framework-Quartz>=10.3,<11
