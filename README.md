@@ -2,7 +2,7 @@
 
 <p align="center"><em>Scalable and Verifiable Environments for Hybrid Computer-Use Agents</em></p>
 
-<p align="center"><a href="https://recreation-bench.cc">Website</a> · <a href="assets/report.pdf">Report</a> · <a href="https://huggingface.co/datasets/Qwen/RecreationBench">Hugging Face</a> · <a href="https://modelscope.cn/datasets/Qwen/RecreationBench">ModelScope</a></p>
+<p align="center"><a href="https://recreation-bench.cc">Website</a> · <a href="https://arxiv.org/pdf/2609.22000">Report</a> · <a href="https://huggingface.co/datasets/Qwen/RecreationBench">Hugging Face</a> · <a href="https://modelscope.cn/datasets/Qwen/RecreationBench">ModelScope</a></p>
 
 <p align="center"><a href="#recreationbench-results">Results</a> · <a href="#quickstart">Quickstart</a> · <a href="#citation">Citation</a></p>
 
@@ -73,10 +73,14 @@ If you have any questions, please contact [xiezhihui.xzh@alibaba-inc.com](mailto
 If you find this environment useful, please consider citing:
 
 ```bibtex
-@article{qwen2026recreationworld,
-  title  = {RecreationWorld: Scalable and Verifiable Environments for Hybrid Computer-Use Agents},
-  author = {Shuai Bai and Jiayong Deng and Yikun Fu and Chang Gao and Xuhao Hu and Mianqiu Huang and Yizhen Jiang and Yuheng Jing and Dehui Kong and Keliang Li and Ning Li and Wanli Li and Dayiheng Liu and Dunjie Lu and Changwei Luo and Que Shen and Zheyuan Wang and Zijian Wang and Jie Wu and Gao Wu and Zhihui Xie and Rui Xie and Haiyang Xu and An Yang and Jiakang Yuan and Yanming Zhang and Jiajun Zhang and Xi Zhang and Zhenru Zhang and Zhuo Zhen and Mingkang Zhu and Bowen Zhou},
-  year   = {2026}
+@misc{qwen2026recreationworld,
+      title={RecreationWorld: Scalable and Verifiable Environments for Hybrid Computer-Use Agents},
+      author={Shuai Bai and Jiayong Deng and Sicheng Fan and Yikun Fu and Chang Gao and Xuhao Hu and Mianqiu Huang and Yizhen Jiang and Yuheng Jing and Dehui Kong and Keliang Li and Ning Li and Wanli Li and Dayiheng Liu and Dunjie Lu and Changwei Luo and Que Shen and Zheyuan Wang and Zijian Wang and Jie Wu and Gao Wu and Zhihui Xie and Rui Xie and Haiyang Xu and An Yang and Jiakang Yuan and Yanming Zhang and Jiajun Zhang and Xi Zhang and Zhenru Zhang and Zhuo Zhen and Mingkang Zhu and Bowen Zhou},
+      year={2026},
+      eprint={2609.22000},
+      archivePrefix={arXiv},
+      primaryClass={cs.CL},
+      url={https://arxiv.org/abs/2609.22000},
 }
 ```
 
