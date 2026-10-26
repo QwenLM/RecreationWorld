@@ -28,6 +28,9 @@ provider-neutral runtime lives at the repository root.
 | macOS | [providers/macos](macos/README.md) | [macOS guide](../docs/providers/macos.md) |
 | Android | [providers/android](android/README.md) | [Android guide](../docs/providers/android.md) |
 
+See [Alibaba Cloud resources](../docs/providers/aliyun-resources.md) for verified
+instance sizes, environment versions, and computer-use preflight coverage.
+
 See [Sandbox access](../docs/providers/sandbox.md) before using the Linux or Web
 Sandbox paths.
 
