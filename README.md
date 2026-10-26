@@ -57,6 +57,9 @@ Choose a platform for setup and batch runs:
 | Android | 50 | UiAutomator | [Android guide](docs/providers/android.md) |
 | Web | 50 | Browser assertions | [Web guide](docs/providers/web.md) |
 
+For verified Alibaba Cloud machine sizes, pinned environments, and computer-use
+preflight status, see [Alibaba Cloud resources](docs/providers/aliyun-resources.md).
+
 The canonical task index is in [`tasks/`](tasks/).
 
 To verify the checkout, run these offline checks; they do not require benchmark data or credentials:
